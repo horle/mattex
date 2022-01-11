@@ -17,8 +17,10 @@ fn main() {
         // subcommand: inbox or outbox
         let cmd = &args[1];
         let fp = &args[2];
+
+        let path = path::Path::new(fp);
         
-        if path::Path::new(fp).is_file() {
+        if path.is_file() {
             let input = fs::read_to_string(fp).expect("input file could not be read!");
 
             // parse surrounding mail with attachments
@@ -27,14 +29,14 @@ fn main() {
             let mails = input.split(&boundary);
 
             // get file name
-            let out_prefix = if fp.contains('/') {
-                fp.rsplit_once('/').unwrap().1
-            } else { fp }.to_string();
-
-            match &cmd[..] {
-                "-i" => process_inbox(mails, out_prefix),
-                "-o" => process_outbox(mails, out_prefix),
-                _ => help()
+            if let Some(out_prefix) = path.file_stem().map(|oss| oss.to_str()).flatten() {
+                match &cmd[..] {
+                    "-i" => process_inbox(mails, out_prefix.to_string()),
+                    "-o" => process_outbox(mails, out_prefix.to_string()),
+                    _ => help()
+                }
+            } else {
+                println!("file name empty!");
             }
         } else {
             panic!("file argument is not a file!");
@@ -47,18 +49,12 @@ fn main() {
 
 fn get_mime_boundary(parsed: ParsedMail) -> String {
     // parse headers of surrounding mail with mail attachments
-    let c_type = parsed
-        .get_headers()
-        .get_first_value("Content-Type")
-        .unwrap();
+    if let Some(boundary) = parsed
+        .ctype.params
+        .get("boundary") { 
 
-    if c_type.contains("boundary=") {
-        let re = Regex::new(".*boundary=\"").unwrap();
-        let boundary = re
-            .replace(c_type.strip_suffix('"').unwrap(), "")
-            .to_string();
-        println!("found MIME boundary: {}", boundary);
-        boundary
+        println!("found MIME boundary: {}", &boundary);
+        boundary.to_string()
     }
     else {
         panic!("File does not contain MIME boundary, aborting.");
