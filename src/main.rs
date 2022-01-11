@@ -1,7 +1,6 @@
 use mailparse::*;
 use regex::Regex;
-use core::str::Split;
-use std::{fs, env, path};
+use std::{env, fs, io, path};
 
 fn help() {
     println!("Usage:");
@@ -10,7 +9,6 @@ fn help() {
 }
 
 fn main() {
-
     let args: Vec<String> = env::args().collect();
 
     if args.len() > 2 {
@@ -19,92 +17,77 @@ fn main() {
         let fp = &args[2];
 
         let path = path::Path::new(fp);
-        
+
         if path.is_file() {
             let input = fs::read_to_string(fp).expect("input file could not be read!");
 
             // parse surrounding mail with attachments
-            let nested = parse_mail(input.as_bytes()).unwrap();
-            let boundary = get_mime_boundary(nested);
-            let mails = input.split(&boundary);
+            if let Ok(nested) = parse_mail(input.as_bytes()) {
+                let boundary = get_mime_boundary(nested);
 
-            // get file name
-            if let Some(out_prefix) = path.file_stem().map(|oss| oss.to_str()).flatten() {
-                match &cmd[..] {
-                    "-i" => process_inbox(mails, out_prefix.to_string()),
-                    "-o" => process_outbox(mails, out_prefix.to_string()),
-                    _ => help()
+                let mails = input
+                    .split(&boundary)
+                    .filter(|m| m.starts_with("Content-Type: message/rfc822"))
+                    .map(|m| m.trim())
+                    .collect::<Vec<_>>();
+
+                // get file name
+                if let Some(out_prefix) = path.file_stem().map(|oss| oss.to_str()).flatten() {
+                    match &cmd[..] {
+                        "-i" => process_inbox(mails, out_prefix.to_string()),
+                        "-o" => process_outbox(mails, out_prefix.to_string()),
+                        _ => {
+                            help();
+                            Ok(())
+                        }
+                    }
+                    .expect("Error processing mails!");
+                } else {
+                    panic!("file name empty!");
                 }
             } else {
-                println!("file name empty!");
+                panic!("Error parsing mail");
             }
         } else {
             panic!("file argument is not a file!");
         }
-    }
-    else {
+    } else {
         help();
     }
 }
 
 fn get_mime_boundary(parsed: ParsedMail) -> String {
     // parse headers of surrounding mail with mail attachments
-    if let Some(boundary) = parsed
-        .ctype.params
-        .get("boundary") { 
-
+    if let Some(boundary) = parsed.ctype.params.get("boundary") {
         println!("found MIME boundary: {}", &boundary);
         boundary.to_string()
-    }
-    else {
+    } else {
         panic!("File does not contain MIME boundary, aborting.");
     }
 }
 
-fn process_inbox(mails: Split<&String>, out_prefix: String) {
+fn process_inbox(mails: Vec<&str>, out_prefix: String) -> io::Result<()> {
     println!("processing inbox ...");
-    
+
     let re = Regex::new(r"Content-Type: message/rfc822(?s).*Received: from").unwrap();
-    let mut f_count: u32 = 0;
 
-    for (i, mail) in mails.enumerate() {
-
-        let m_str = mail.trim();
-        if !m_str.starts_with("Content-Type: message/rfc822") {
-            continue;
-        }
-
-        let m = "Received: from".to_string() + &re.replace(m_str, "").to_string();
-
-        let result = fs::write(format!("{}-{}.eml", out_prefix, i), m);
-        match result {
-            Ok(_) => { f_count += 1 },
-            Err(e) => { panic!("Could not write to file: {:?}", e) }
-        }
+    for (i, mail) in mails.iter().enumerate() {
+        let m = "Received: from".to_string() + &re.replace(mail, "").to_string();
+        fs::write(format!("{}-{}.eml", out_prefix, i), m)?;
     }
-    println!("Created {} eml files.", f_count);
+    println!("Created {} eml files.", mails.len());
+    Ok(())
 }
 
-fn process_outbox(mails: Split<&String>, out_prefix: String) {
+fn process_outbox(mails: Vec<&str>, out_prefix: String) -> io::Result<()> {
     println!("processing outbox ...");
-    
+
     let re = Regex::new(r"Content-Type: message/rfc822(?s).*From: ").unwrap();
-    let mut f_count: u32 = 0;
 
-    for (i, mail) in mails.enumerate() {
-
-        let m_str = mail.trim();
-        if !m_str.starts_with("Content-Type: message/rfc822") {
-            continue;
-        }
-
-        let m = "From: ".to_string() + &re.replace(m_str, "").to_string();
-
-        let result = fs::write(format!("{}-{}.eml", out_prefix, i), m);
-        match result {
-            Ok(_) => { f_count += 1 },
-            Err(e) => { panic!("Could not write to file: {:?}", e) }
-        }
+    for (i, mail) in mails.iter().enumerate() {
+        let m = "From: ".to_string() + &re.replace(mail, "").to_string();
+        fs::write(format!("{}-{}.eml", out_prefix, i), m)?;
     }
-    println!("Created {} eml files.", f_count);
+    println!("Created {} eml files.", mails.len());
+    Ok(())
 }
