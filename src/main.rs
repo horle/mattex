@@ -4,18 +4,14 @@ use std::{env, fs, io, path};
 
 fn help() {
     println!("Usage:");
-    println!(" mattex -i <inbox file>       Extract inbox mail attachments");
-    println!(" mattex -o <outbox file>      Extract outbox mail attachments");
+    println!(" mattex <eml input file>       Extract mail attachments");
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() > 2 {
-        // subcommand: inbox or outbox
-        let cmd = &args[1];
-        let fp = &args[2];
-
+    if args.len() == 2 {
+        let fp = &args[1];
         let path = path::Path::new(fp);
 
         if path.is_file() {
@@ -33,15 +29,8 @@ fn main() {
 
                 // get file name
                 if let Some(out_prefix) = path.file_stem().map(|oss| oss.to_str()).flatten() {
-                    match &cmd[..] {
-                        "-i" => process_inbox(mails, out_prefix.to_string()),
-                        "-o" => process_outbox(mails, out_prefix.to_string()),
-                        _ => {
-                            help();
-                            Ok(())
-                        }
-                    }
-                    .expect("Error processing mails!");
+                    process_mails(mails, out_prefix.to_string())
+                        .expect("Error processing mails!");
                 } else {
                     panic!("file name empty!");
                 }
@@ -66,28 +55,24 @@ fn get_mime_boundary(parsed: ParsedMail) -> String {
     }
 }
 
-fn process_inbox(mails: Vec<&str>, out_prefix: String) -> io::Result<()> {
-    println!("processing inbox ...");
+fn process_mails(mails: Vec<&str>, out_prefix: String) -> io::Result<()> {
+    let re_in = Regex::new(r"Content-Type: message/rfc822(?s).*Received: from").unwrap();
+    let re_out = Regex::new(r"Content-Type: message/rfc822(?s).*From: ").unwrap();
 
-    let re = Regex::new(r"Content-Type: message/rfc822(?s).*Received: from").unwrap();
+    let inbox = mails.iter().filter(|mail| re_in.is_match(mail));
+    let outbox = mails.iter().filter(|mail| re_out.is_match(mail));
 
-    for (i, mail) in mails.iter().enumerate() {
-        let m = "Received: from".to_string() + &re.replace(mail, "").to_string();
+    let in_c = inbox.clone().count();
+    let out_c = outbox.clone().count();
+
+    for (i, mail) in inbox.enumerate() {
+        let m = "Received: from".to_string() + &re_in.replace(mail, "").to_string();
         fs::write(format!("{}-{}.eml", out_prefix, i), m)?;
     }
-    println!("Created {} eml files.", mails.len());
-    Ok(())
-}
-
-fn process_outbox(mails: Vec<&str>, out_prefix: String) -> io::Result<()> {
-    println!("processing outbox ...");
-
-    let re = Regex::new(r"Content-Type: message/rfc822(?s).*From: ").unwrap();
-
-    for (i, mail) in mails.iter().enumerate() {
-        let m = "From: ".to_string() + &re.replace(mail, "").to_string();
+    for (i, mail) in outbox.enumerate() {
+        let m = "From: ".to_string() + &re_out.replace(mail, "").to_string();
         fs::write(format!("{}-{}.eml", out_prefix, i), m)?;
     }
-    println!("Created {} eml files.", mails.len());
+    println!("Created {} eml files in total, {} inbox files and {} outbox files.", mails.len(), in_c, out_c);
     Ok(())
 }
