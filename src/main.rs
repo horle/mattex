@@ -4,7 +4,7 @@ use std::{env, fs, io, path};
 
 fn help() {
     println!("Usage:");
-    println!(" mattex <eml input file>       Extract mail attachments");
+    println!("  mattex <eml input file>       Extract mail attachments");
 }
 
 fn main() {

@@ -1,5 +1,5 @@
 [package]
-name = "extract_nested_eml"
+name = "mattex"
 version = "0.1.0"
 authors = ["horle <horle@users.noreply.github.com>"]
 edition = "2018"
